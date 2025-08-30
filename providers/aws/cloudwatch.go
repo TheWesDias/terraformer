@@ -143,7 +143,7 @@ func (g *CloudWatchGenerator) createRules(cloudwatcheventsSvc *cloudwatchevents.
 						cloudwatchAllowEmptyValues,
 						map[string]interface{}{}))
 				}
-				listTargetsNextToken = output.NextToken
+				listTargetsNextToken = targetResponse.NextToken
 				if listTargetsNextToken == nil {
 					break
 				}
