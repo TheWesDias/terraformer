@@ -104,53 +104,80 @@ func (g *CloudWatchGenerator) createDashboards(cloudwatchSvc *cloudwatch.Client)
 }
 
 func (g *CloudWatchGenerator) createRules(cloudwatcheventsSvc *cloudwatchevents.Client) error {
-	var listRulesNextToken *string
+	var listEventBusesNextToken *string
 	for {
-		output, err := cloudwatcheventsSvc.ListRules(context.TODO(), &cloudwatchevents.ListRulesInput{
-			NextToken: listRulesNextToken,
+		eventBusesResponse, err := cloudwatcheventsSvc.ListEventBuses(context.TODO(), &cloudwatchevents.ListEventBusesInput{
+			NextToken: listEventBusesNextToken,
 		})
 		if err != nil {
 			return err
 		}
-		for _, rule := range output.Rules {
+		for _, eventBus := range eventBusesResponse.EventBuses {
 			g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
-				*rule.Name,
-				*rule.Name,
-				"aws_cloudwatch_event_rule",
+				*eventBus.Name,
+				*eventBus.Name,
+				"aws_cloudwatch_event_bus",
 				"aws",
-				cloudwatchAllowEmptyValues))
-
-			var listTargetsNextToken *string
+				cloudwatchAllowEmptyValues,
+			))
+			var listRulesNextToken *string
 			for {
-				targetResponse, err := cloudwatcheventsSvc.ListTargetsByRule(context.TODO(), &cloudwatchevents.ListTargetsByRuleInput{
-					Rule:      rule.Name,
-					NextToken: listTargetsNextToken,
+				output, err := cloudwatcheventsSvc.ListRules(context.TODO(), &cloudwatchevents.ListRulesInput{
+					EventBusName: eventBus.Name,
+					NextToken:    listRulesNextToken,
 				})
 				if err != nil {
 					return err
 				}
-				for _, target := range targetResponse.Targets {
-					targetRef := *rule.Name + "/" + *target.Id
-					g.Resources = append(g.Resources, terraformutils.NewResource(
-						targetRef,
-						targetRef,
-						"aws_cloudwatch_event_target",
+				for _, rule := range output.Rules {
+					ruleRef := *eventBus.Name + "/" + *rule.Name
+					g.Resources = append(g.Resources, terraformutils.NewSimpleResource(
+						ruleRef,
+						ruleRef,
+						"aws_cloudwatch_event_rule",
 						"aws",
-						map[string]string{
-							"rule":      *rule.Name,
-							"target_id": *target.Id,
-						},
 						cloudwatchAllowEmptyValues,
-						map[string]interface{}{}))
+					))
+					var listTargetsNextToken *string
+					for {
+						targetResponse, err := cloudwatcheventsSvc.ListTargetsByRule(context.TODO(), &cloudwatchevents.ListTargetsByRuleInput{
+							Rule:         rule.Name,
+							NextToken:    listTargetsNextToken,
+							EventBusName: eventBus.Name,
+						})
+						if err != nil {
+							return err
+						}
+
+						for _, target := range targetResponse.Targets {
+							targetRef := *rule.Name + "/" + *target.Id
+							g.Resources = append(g.Resources, terraformutils.NewResource(
+								targetRef,
+								targetRef,
+								"aws_cloudwatch_event_target",
+								"aws",
+								map[string]string{
+									"rule":           *rule.Name,
+									"target_id":      *target.Id,
+									"event_bus_name": *eventBus.Name,
+								},
+								cloudwatchAllowEmptyValues,
+								map[string]interface{}{}))
+						}
+						listTargetsNextToken = targetResponse.NextToken
+						if listTargetsNextToken == nil {
+							break
+						}
+					}
 				}
-				listTargetsNextToken = output.NextToken
-				if listTargetsNextToken == nil {
+				listRulesNextToken = output.NextToken
+				if listRulesNextToken == nil {
 					break
 				}
 			}
 		}
-		listRulesNextToken = output.NextToken
-		if listRulesNextToken == nil {
+		listEventBusesNextToken = eventBusesResponse.NextToken
+		if listEventBusesNextToken == nil {
 			break
 		}
 	}
